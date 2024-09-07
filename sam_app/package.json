@@ -1,0 +1,11 @@
+{
+    "name": "stl-viewer-app",
+    "version": "1.0.0",
+    "type": "module",
+    "scripts": {
+      "install:all": "npm install && cd stl_parser && npm install && cd ../react-app && npm install",
+      "build:react": "cd react-app && npm run build",
+      "build:all": "npm run build:react",
+      "deploy": "npm run build:all && sam build && sam deploy --guided"
+    }
+  }

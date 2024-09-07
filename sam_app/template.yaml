@@ -1,0 +1,128 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: SAM Template for STL File Parser Application with React Frontend and API Endpoints
+
+Globals:
+  Function:
+    Timeout: 30
+    Runtime: nodejs20.x
+
+Resources:
+  STLParserFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: stl_parser/
+      Handler: app.lambdaHandler
+      Policies:
+        - S3CrudPolicy:
+            BucketName: !Ref STLBucket
+        - DynamoDBCrudPolicy:
+            TableName: !Ref STLMetadataTable
+      Environment:
+        Variables:
+          STL_BUCKET: !Ref STLBucket
+          STL_METADATA_TABLE: !Ref STLMetadataTable
+      Events:
+        ListFiles:
+          Type: Api
+          Properties:
+            Path: /files
+            Method: get
+        GetFile:
+          Type: Api
+          Properties:
+            Path: /files/{fileId}
+            Method: get
+        UploadFile:
+          Type: Api
+          Properties:
+            Path: /files
+            Method: post
+        ParseSTL:
+          Type: Api
+          Properties:
+            Path: /parse
+            Method: post
+
+  STLBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub '${AWS::StackName}-stl-files'
+      CorsConfiguration:
+        CorsRules:
+          - AllowedHeaders: ['*']
+            AllowedMethods: [GET, PUT, POST, DELETE, HEAD]
+            AllowedOrigins: ['*']
+            MaxAge: 3000
+
+  STLMetadataTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub '${AWS::StackName}-stl-metadata'
+      AttributeDefinitions:
+        - AttributeName: id
+          AttributeType: S
+      KeySchema:
+        - AttributeName: id
+          KeyType: HASH
+      BillingMode: PAY_PER_REQUEST
+
+  ReactAppBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub '${AWS::StackName}-react-app'
+      AccessControl: PublicRead
+      WebsiteConfiguration:
+        IndexDocument: index.html
+        ErrorDocument: index.html
+
+  ReactAppBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref ReactAppBucket
+      PolicyDocument:
+        Statement:
+          - Sid: PublicReadGetObject
+            Effect: Allow
+            Principal: '*'
+            Action: s3:GetObject
+            Resource: !Sub 'arn:aws:s3:::${ReactAppBucket}/*'
+
+  CloudFrontDistribution:
+    Type: AWS::CloudFront::Distribution
+    Properties:
+      DistributionConfig:
+        DefaultCacheBehavior:
+          ViewerProtocolPolicy: redirect-to-https
+          TargetOriginId: ReactAppS3Origin
+          DefaultTTL: 0
+          MinTTL: 0
+          MaxTTL: 0
+          ForwardedValues:
+            QueryString: false
+        Enabled: true
+        HttpVersion: http2
+        Origins:
+          - DomainName: !GetAtt ReactAppBucket.RegionalDomainName
+            Id: ReactAppS3Origin
+            S3OriginConfig: {}
+        PriceClass: PriceClass_100
+        ViewerCertificate:
+          CloudFrontDefaultCertificate: true
+
+Outputs:
+  APIEndpoint:
+    Description: "API Gateway endpoint URL for STL Parser function"
+    Value: !Sub "https://${ServerlessRestApi}.execute-api.${AWS::Region}.amazonaws.com/Prod/"
+  STLParserFunction:
+    Description: "STL Parser Lambda Function ARN"
+    Value: !GetAtt STLParserFunction.Arn
+  STLBucketName:
+    Description: "S3 Bucket for STL files"
+    Value: !Ref STLBucket
+  STLMetadataTableName:
+    Description: "DynamoDB Table for STL metadata"
+    Value: !Ref STLMetadataTable
+  ReactAppURL:
+    Description: "URL for the React application"
+    Value: !GetAtt CloudFrontDistribution.DomainName
