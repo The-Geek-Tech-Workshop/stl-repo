@@ -3,8 +3,8 @@ import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
 import { DynamoDBDocumentClient, PutCommand, GetCommand, ScanCommand } from "@aws-sdk/lib-dynamodb";
 import { v4 as uuidv4 } from 'uuid';
 
-const s3Client = new S3Client({ region: "us-east-1" }); // Replace with your region
-const ddbClient = new DynamoDBClient({ region: "us-east-1" }); // Replace with your region
+const s3Client = new S3Client(); 
+const ddbClient = new DynamoDBClient(); 
 const ddbDocClient = DynamoDBDocumentClient.from(ddbClient);
 
 const STL_BUCKET = process.env.STL_BUCKET;
@@ -19,7 +19,10 @@ export const lambdaHandler = async (event) => {
         } else if (httpMethod === 'GET' && path.startsWith('/files/')) {
             const fileId = pathParameters.fileId;
             return await getFile(fileId);
-        } else if (httpMethod === 'POST' && path === '/files') {
+        } else if (httpMethod === 'GET' && path.startsWith('/stl/')) {
+            const fileId = pathParameters.fileId;
+            return await getStl(fileId);
+        }  else if (httpMethod === 'POST' && path === '/files') {
             const fileData = JSON.parse(body);
             return await uploadFile(fileData);
         } else if (httpMethod === 'POST' && path === '/parse') {
@@ -72,6 +75,36 @@ async function getFile(fileId) {
         statusCode: 200,
         body: JSON.stringify(data.Item)
     };
+}
+
+async function getStl(fileId) {
+    const params = {
+        TableName: STL_METADATA_TABLE,
+        Key: { id: fileId }
+    };
+
+    const data = await ddbDocClient.send(new GetCommand(params));
+
+    if (!data.Item) {
+        return {
+            statusCode: 404,
+            body: JSON.stringify({ message: 'File not found' })
+        };
+    }
+
+    const s3Params = {
+        Bucket: STL_BUCKET,
+        Key: data.Item.s3_key
+    };
+
+    const stlS3Object =  await s3Client.send(new GetObjectCommand(s3Params));
+    const fileData = await stlS3Object.Body.transformToString();
+
+    return {
+        statusCode: 200,
+        body: fileData
+    }
+
 }
 
 async function uploadFile(fileData) {

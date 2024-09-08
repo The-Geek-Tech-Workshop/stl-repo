@@ -6,21 +6,6 @@ Globals:
     Timeout: 30
     Runtime: nodejs20.x
 Resources:
-  STLParserFunction:
-    Type: AWS::Serverless::Function
-    Properties:
-      CodeUri: stl_parser/
-      Handler: app.lambdaHandler
-      Policies:
-        - S3CrudPolicy:
-            BucketName: !Ref STLBucket
-        - DynamoDBCrudPolicy:
-            TableName: !Ref STLMetadataTable
-      Environment:
-        Variables:
-          STL_BUCKET: !Ref STLBucket
-          STL_METADATA_TABLE: !Ref STLMetadataTable
-
   ApiGatewayApi:
     Type: AWS::Serverless::Api
     Properties:
@@ -34,7 +19,14 @@ Resources:
     Type: AWS::Serverless::Function
     Properties:
       CodeUri: stl_parser/
-      Handler: app.listFilesHandler
+      Handler: app.lambdaHandler
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref STLMetadataTable
+      Environment:
+        Variables:
+          STL_METADATA_TABLE: !Ref STLMetadataTable
+          REGION: "eu-west-2"
       Events:
         ListFiles:
           Type: Api
@@ -47,7 +39,13 @@ Resources:
     Type: AWS::Serverless::Function
     Properties:
       CodeUri: stl_parser/
-      Handler: app.getFileHandler
+      Handler: app.lambdaHandler
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref STLMetadataTable
+      Environment:
+        Variables:
+          STL_METADATA_TABLE: !Ref STLMetadataTable
       Events:
         GetFile:
           Type: Api
@@ -60,7 +58,16 @@ Resources:
     Type: AWS::Serverless::Function
     Properties:
       CodeUri: stl_parser/
-      Handler: app.uploadFileHandler
+      Handler: app.lambdaHandler
+      Policies:
+        - S3CrudPolicy:
+            BucketName: !Ref STLBucket
+        - DynamoDBCrudPolicy:
+            TableName: !Ref STLMetadataTable
+      Environment:
+        Variables:
+          STL_BUCKET: !Ref STLBucket
+          STL_METADATA_TABLE: !Ref STLMetadataTable
       Events:
         UploadFile:
           Type: Api
@@ -69,18 +76,27 @@ Resources:
             Path: /files
             Method: post
 
-  ParseSTLFunction:
+  GetSTLFunction:
     Type: AWS::Serverless::Function
     Properties:
       CodeUri: stl_parser/
-      Handler: app.parseSTLHandler
+      Handler: app.lambdaHandler
+      Policies:
+        - S3CrudPolicy:
+            BucketName: !Ref STLBucket
+        - DynamoDBCrudPolicy:
+            TableName: !Ref STLMetadataTable
+      Environment:
+        Variables:
+          STL_BUCKET: !Ref STLBucket
+          STL_METADATA_TABLE: !Ref STLMetadataTable
       Events:
         ParseSTL:
           Type: Api
           Properties:
             RestApiId: !Ref ApiGatewayApi
-            Path: /parse
-            Method: post
+            Path: /stl/{fileId}
+            Method: get
 
   STLBucket:
     Type: AWS::S3::Bucket
@@ -174,6 +190,14 @@ Resources:
         CacheBehaviors:
           - PathPattern: '/Prod/*'
             TargetOriginId: ApiGatewayOrigin
+            AllowedMethods:
+              - GET
+              - HEAD
+              - OPTIONS
+              - PUT
+              - PATCH
+              - POST
+              - DELETE
             ViewerProtocolPolicy: https-only
             DefaultTTL: 0
             MinTTL: 0
