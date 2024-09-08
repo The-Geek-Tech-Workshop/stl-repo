@@ -3,5 +3,6 @@
 	"features": {
 		"ghcr.io/devcontainers/features/aws-cli:1": {},
 		"ghcr.io/goldsam/dev-container-features/aws-sam-cli:1": {}
-	}
+	},
+	"onCreateCommand": "pip install cfn-lint"
 }

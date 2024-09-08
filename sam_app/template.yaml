@@ -1,12 +1,10 @@
 AWSTemplateFormatVersion: '2010-09-09'
 Transform: AWS::Serverless-2016-10-31
 Description: SAM Template for STL File Parser Application with React Frontend and API Endpoints
-
 Globals:
   Function:
     Timeout: 30
     Runtime: nodejs20.x
-
 Resources:
   STLParserFunction:
     Type: AWS::Serverless::Function
@@ -22,25 +20,65 @@ Resources:
         Variables:
           STL_BUCKET: !Ref STLBucket
           STL_METADATA_TABLE: !Ref STLMetadataTable
+
+  ApiGatewayApi:
+    Type: AWS::Serverless::Api
+    Properties:
+      StageName: Prod
+      Cors:
+        AllowMethods: "'GET,POST,OPTIONS'"
+        AllowHeaders: "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token'"
+        AllowOrigin: "'*'"
+
+  ListFilesFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: stl_parser/
+      Handler: app.listFilesHandler
       Events:
         ListFiles:
           Type: Api
           Properties:
+            RestApiId: !Ref ApiGatewayApi
             Path: /files
             Method: get
+
+  GetFileFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: stl_parser/
+      Handler: app.getFileHandler
+      Events:
         GetFile:
           Type: Api
           Properties:
+            RestApiId: !Ref ApiGatewayApi
             Path: /files/{fileId}
             Method: get
+
+  UploadFileFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: stl_parser/
+      Handler: app.uploadFileHandler
+      Events:
         UploadFile:
           Type: Api
           Properties:
+            RestApiId: !Ref ApiGatewayApi
             Path: /files
             Method: post
+
+  ParseSTLFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: stl_parser/
+      Handler: app.parseSTLHandler
+      Events:
         ParseSTL:
           Type: Api
           Properties:
+            RestApiId: !Ref ApiGatewayApi
             Path: /parse
             Method: post
 
@@ -71,7 +109,11 @@ Resources:
     Type: AWS::S3::Bucket
     Properties:
       BucketName: !Sub '${AWS::StackName}-react-app'
-      AccessControl: PublicRead
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
       WebsiteConfiguration:
         IndexDocument: index.html
         ErrorDocument: index.html
@@ -81,12 +123,26 @@ Resources:
     Properties:
       Bucket: !Ref ReactAppBucket
       PolicyDocument:
+        Version: '2012-10-17'
         Statement:
-          - Sid: PublicReadGetObject
+          - Sid: AllowCloudFrontServicePrincipal
             Effect: Allow
-            Principal: '*'
+            Principal:
+              Service: cloudfront.amazonaws.com
             Action: s3:GetObject
-            Resource: !Sub 'arn:aws:s3:::${ReactAppBucket}/*'
+            Resource: !Sub '${ReactAppBucket.Arn}/*'
+            Condition:
+              StringEquals:
+                AWS:SourceArn: !Sub 'arn:aws:cloudfront::${AWS::AccountId}:distribution/${CloudFrontDistribution}'
+
+  CloudFrontOriginAccessControl:
+    Type: AWS::CloudFront::OriginAccessControl
+    Properties:
+      OriginAccessControlConfig:
+        Name: ReactAppOAC
+        OriginAccessControlOriginType: s3
+        SigningBehavior: always
+        SigningProtocol: sigv4
 
   CloudFrontDistribution:
     Type: AWS::CloudFront::Distribution
@@ -101,19 +157,48 @@ Resources:
           ForwardedValues:
             QueryString: false
         Enabled: true
+        DefaultRootObject: "/index.html"
         HttpVersion: http2
         Origins:
           - DomainName: !GetAtt ReactAppBucket.RegionalDomainName
             Id: ReactAppS3Origin
-            S3OriginConfig: {}
+            S3OriginConfig:
+              OriginAccessIdentity: ""
+            OriginAccessControlId: !Ref CloudFrontOriginAccessControl
+          - DomainName: !Sub '${ApiGatewayApi}.execute-api.${AWS::Region}.amazonaws.com'
+            Id: ApiGatewayOrigin
+            CustomOriginConfig:
+              HTTPPort: 80
+              HTTPSPort: 443
+              OriginProtocolPolicy: https-only
+        CacheBehaviors:
+          - PathPattern: '/Prod/*'
+            TargetOriginId: ApiGatewayOrigin
+            ViewerProtocolPolicy: https-only
+            DefaultTTL: 0
+            MinTTL: 0
+            MaxTTL: 0
+            ForwardedValues:
+              QueryString: true
+              Headers:
+                - Origin
+                - Access-Control-Request-Headers
+                - Access-Control-Request-Method
         PriceClass: PriceClass_100
         ViewerCertificate:
           CloudFrontDefaultCertificate: true
+        CustomErrorResponses:
+          - ErrorCode: 403 # forbidden
+            ResponseCode: 200
+            ResponsePagePath: "/index.html"
+          - ErrorCode: 404 # not found
+            ResponseCode: 200
+            ResponsePagePath: "/index.html"
 
 Outputs:
   APIEndpoint:
     Description: "API Gateway endpoint URL for STL Parser function"
-    Value: !Sub "https://${ServerlessRestApi}.execute-api.${AWS::Region}.amazonaws.com/Prod/"
+    Value: !Sub "https://${ApiGatewayApi}.execute-api.${AWS::Region}.amazonaws.com/Prod/"
   STLParserFunction:
     Description: "STL Parser Lambda Function ARN"
     Value: !GetAtt STLParserFunction.Arn
@@ -125,4 +210,7 @@ Outputs:
     Value: !Ref STLMetadataTable
   ReactAppURL:
     Description: "URL for the React application"
+    Value: !GetAtt CloudFrontDistribution.DomainName
+  CloudFrontDomainName:
+    Description: "Domain name of the CloudFront distribution"
     Value: !GetAtt CloudFrontDistribution.DomainName
