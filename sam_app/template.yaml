@@ -1,4 +1,4 @@
-AWSTemplateFormatVersion: '2010-09-09'
+AWSTemplateFormatVersion: "2010-09-09"
 Transform: AWS::Serverless-2016-10-31
 Description: SAM Template for STL File Parser Application with React Frontend and API Endpoints
 Globals:
@@ -6,7 +6,57 @@ Globals:
     Timeout: 30
     Runtime: nodejs20.x
 Resources:
-  STLParserFunction:
+  ApiGatewayApi:
+    Type: AWS::Serverless::Api
+    Properties:
+      StageName: Prod
+      Cors:
+        AllowMethods: "'GET,POST,OPTIONS'"
+        AllowHeaders: "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token'"
+        AllowOrigin: "'*'"
+      BinaryMediaTypes:
+        - "*/*"
+
+  ListFilesFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: stl_parser/
+      Handler: app.lambdaHandler
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref STLMetadataTable
+      Environment:
+        Variables:
+          STL_METADATA_TABLE: !Ref STLMetadataTable
+          REGION: "eu-west-2"
+      Events:
+        ListFiles:
+          Type: Api
+          Properties:
+            RestApiId: !Ref ApiGatewayApi
+            Path: /files
+            Method: get
+
+  GetFileFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: stl_parser/
+      Handler: app.lambdaHandler
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref STLMetadataTable
+      Environment:
+        Variables:
+          STL_METADATA_TABLE: !Ref STLMetadataTable
+      Events:
+        GetFile:
+          Type: Api
+          Properties:
+            RestApiId: !Ref ApiGatewayApi
+            Path: /files/{fileId}
+            Method: get
+
+  UploadFileFunction:
     Type: AWS::Serverless::Function
     Properties:
       CodeUri: stl_parser/
@@ -20,47 +70,6 @@ Resources:
         Variables:
           STL_BUCKET: !Ref STLBucket
           STL_METADATA_TABLE: !Ref STLMetadataTable
-
-  ApiGatewayApi:
-    Type: AWS::Serverless::Api
-    Properties:
-      StageName: Prod
-      Cors:
-        AllowMethods: "'GET,POST,OPTIONS'"
-        AllowHeaders: "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token'"
-        AllowOrigin: "'*'"
-
-  ListFilesFunction:
-    Type: AWS::Serverless::Function
-    Properties:
-      CodeUri: stl_parser/
-      Handler: app.listFilesHandler
-      Events:
-        ListFiles:
-          Type: Api
-          Properties:
-            RestApiId: !Ref ApiGatewayApi
-            Path: /files
-            Method: get
-
-  GetFileFunction:
-    Type: AWS::Serverless::Function
-    Properties:
-      CodeUri: stl_parser/
-      Handler: app.getFileHandler
-      Events:
-        GetFile:
-          Type: Api
-          Properties:
-            RestApiId: !Ref ApiGatewayApi
-            Path: /files/{fileId}
-            Method: get
-
-  UploadFileFunction:
-    Type: AWS::Serverless::Function
-    Properties:
-      CodeUri: stl_parser/
-      Handler: app.uploadFileHandler
       Events:
         UploadFile:
           Type: Api
@@ -69,34 +78,43 @@ Resources:
             Path: /files
             Method: post
 
-  ParseSTLFunction:
+  GetSTLFunction:
     Type: AWS::Serverless::Function
     Properties:
       CodeUri: stl_parser/
-      Handler: app.parseSTLHandler
+      Handler: app.lambdaHandler
+      Policies:
+        - S3CrudPolicy:
+            BucketName: !Ref STLBucket
+        - DynamoDBCrudPolicy:
+            TableName: !Ref STLMetadataTable
+      Environment:
+        Variables:
+          STL_BUCKET: !Ref STLBucket
+          STL_METADATA_TABLE: !Ref STLMetadataTable
       Events:
         ParseSTL:
           Type: Api
           Properties:
             RestApiId: !Ref ApiGatewayApi
-            Path: /parse
-            Method: post
+            Path: /stl/{fileId}
+            Method: get
 
   STLBucket:
     Type: AWS::S3::Bucket
     Properties:
-      BucketName: !Sub '${AWS::StackName}-stl-files'
+      BucketName: !Sub "${AWS::StackName}-stl-files"
       CorsConfiguration:
         CorsRules:
-          - AllowedHeaders: ['*']
+          - AllowedHeaders: ["*"]
             AllowedMethods: [GET, PUT, POST, DELETE, HEAD]
-            AllowedOrigins: ['*']
+            AllowedOrigins: ["*"]
             MaxAge: 3000
 
   STLMetadataTable:
     Type: AWS::DynamoDB::Table
     Properties:
-      TableName: !Sub '${AWS::StackName}-stl-metadata'
+      TableName: !Sub "${AWS::StackName}-stl-metadata"
       AttributeDefinitions:
         - AttributeName: id
           AttributeType: S
@@ -108,7 +126,7 @@ Resources:
   ReactAppBucket:
     Type: AWS::S3::Bucket
     Properties:
-      BucketName: !Sub '${AWS::StackName}-react-app'
+      BucketName: !Sub "${AWS::StackName}-react-app"
       PublicAccessBlockConfiguration:
         BlockPublicAcls: true
         BlockPublicPolicy: true
@@ -123,17 +141,17 @@ Resources:
     Properties:
       Bucket: !Ref ReactAppBucket
       PolicyDocument:
-        Version: '2012-10-17'
+        Version: "2012-10-17"
         Statement:
           - Sid: AllowCloudFrontServicePrincipal
             Effect: Allow
             Principal:
               Service: cloudfront.amazonaws.com
             Action: s3:GetObject
-            Resource: !Sub '${ReactAppBucket.Arn}/*'
+            Resource: !Sub "${ReactAppBucket.Arn}/*"
             Condition:
               StringEquals:
-                AWS:SourceArn: !Sub 'arn:aws:cloudfront::${AWS::AccountId}:distribution/${CloudFrontDistribution}'
+                AWS:SourceArn: !Sub "arn:aws:cloudfront::${AWS::AccountId}:distribution/${CloudFrontDistribution}"
 
   CloudFrontOriginAccessControl:
     Type: AWS::CloudFront::OriginAccessControl
@@ -165,15 +183,23 @@ Resources:
             S3OriginConfig:
               OriginAccessIdentity: ""
             OriginAccessControlId: !Ref CloudFrontOriginAccessControl
-          - DomainName: !Sub '${ApiGatewayApi}.execute-api.${AWS::Region}.amazonaws.com'
+          - DomainName: !Sub "${ApiGatewayApi}.execute-api.${AWS::Region}.amazonaws.com"
             Id: ApiGatewayOrigin
             CustomOriginConfig:
               HTTPPort: 80
               HTTPSPort: 443
               OriginProtocolPolicy: https-only
         CacheBehaviors:
-          - PathPattern: '/Prod/*'
+          - PathPattern: "/Prod/*"
             TargetOriginId: ApiGatewayOrigin
+            AllowedMethods:
+              - GET
+              - HEAD
+              - OPTIONS
+              - PUT
+              - PATCH
+              - POST
+              - DELETE
             ViewerProtocolPolicy: https-only
             DefaultTTL: 0
             MinTTL: 0
@@ -199,9 +225,6 @@ Outputs:
   APIEndpoint:
     Description: "API Gateway endpoint URL for STL Parser function"
     Value: !Sub "https://${ApiGatewayApi}.execute-api.${AWS::Region}.amazonaws.com/Prod/"
-  STLParserFunction:
-    Description: "STL Parser Lambda Function ARN"
-    Value: !GetAtt STLParserFunction.Arn
   STLBucketName:
     Description: "S3 Bucket for STL files"
     Value: !Ref STLBucket

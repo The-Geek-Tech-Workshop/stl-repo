@@ -31,7 +31,8 @@ const App = () => {
 
   const handleFileUpload = async (fileData) => {
     try {
-      await axios.post(`${API_ENDPOINT}/files`, fileData);
+      const response = await axios.post(`${API_ENDPOINT}/files`, fileData);
+      console.log(`HTTP RES: ${JSON.stringify(response)}`);
       fetchFiles(); // Refresh the file list
     } catch (error) {
       console.error('Error uploading file:', error);
@@ -56,7 +57,7 @@ const App = () => {
         </div>
         <div className="w-2/3">
           {selectedFile && (
-            <STLViewer fileUrl={`${API_ENDPOINT}/files/${selectedFile.id}`} />
+            <STLViewer fileUrl={`${API_ENDPOINT}/stl/${selectedFile.id}`} />
           )}
         </div>
       </div>

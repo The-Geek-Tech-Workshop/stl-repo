@@ -1,8 +1,7 @@
-import React, { useRef, useState } from 'react';
-import { Canvas } from '@react-three/fiber';
+import React, { Suspense } from 'react';
+import { Canvas, useLoader } from '@react-three/fiber';
 import { STLLoader } from 'three/examples/jsm/loaders/STLLoader';
 import { OrbitControls } from '@react-three/drei';
-import { useLoader } from '@react-three/fiber'
 
 function Model({ url }) {
   const geom = useLoader(STLLoader, url);
